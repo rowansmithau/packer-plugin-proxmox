@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/packer-plugin-sdk/plugin"
 
 	proxmoxclone "github.com/hashicorp/packer-plugin-proxmox/builder/proxmox/clone"
+	proxmoxct "github.com/hashicorp/packer-plugin-proxmox/builder/proxmox/ct"
 	proxmoxiso "github.com/hashicorp/packer-plugin-proxmox/builder/proxmox/iso"
 	"github.com/hashicorp/packer-plugin-proxmox/version"
 )
@@ -21,6 +22,7 @@ func main() {
 	pps.RegisterBuilder(plugin.DEFAULT_NAME, new(proxmoxiso.Builder))
 	pps.RegisterBuilder("iso", new(proxmoxiso.Builder))
 	pps.RegisterBuilder("clone", new(proxmoxclone.Builder))
+	pps.RegisterBuilder("ct", new(proxmoxct.Builder))
 	pps.SetVersion(version.PluginVersion)
 	err := pps.Run()
 	if err != nil {
