@@ -27,8 +27,8 @@ import (
 
 type Config struct {
 	common.PackerConfig `mapstructure:",squash"`
-	Comm                communicator.Config                `mapstructure:",squash"`
-	ProxmoxConnect      proxmoxcommon.ProxmoxConnectConfig `mapstructure:",squash"`
+	Comm                communicator.Config      `mapstructure:",squash"`
+	ProxmoxConnect      proxmoxcommon.Config     `mapstructure:",squash"`
 
 	// Required
 	OsTemplate string `mapstructure:"os_template"`
@@ -150,7 +150,7 @@ func (c *Config) Prepare(raws ...interface{}) ([]string, []string, error) {
 	}
 	c.ProxmoxConnect = proxmoxConnectConf
 
-	if c.ProxmoxConnect.ProxmoxURL, err = url.Parse(c.ProxmoxConnect.ProxmoxURLRaw); err != nil {
+	if _, err = url.Parse(c.ProxmoxConnect.ProxmoxURLRaw); err != nil {
 		errs = packersdk.MultiErrorAppend(errs, fmt.Errorf("could not parse proxmox_url: %s", err))
 	}
 
@@ -189,6 +189,26 @@ func (c *Config) Prepare(raws ...interface{}) ([]string, []string, error) {
 		// Default to packer-[time-ordered-uuid]
 		c.Hostname = fmt.Sprintf("packer-%s", uuid.TimeOrderedUUID())
 	}
+	
+	// Enable console by default for containers
+	if !c.Console {
+		c.Console = true
+	}
+	
+	if !c.Unprivileged {
+	// Check if it was in the metadata (meaning it was explicitly set)
+	    hasUnprivileged := false
+	    for _, key := range md.Keys {
+	        if key == "unprivileged" {
+	            hasUnprivileged = true
+	            break
+	        }
+	    }
+	    // Only set to true if it wasn't explicitly configured
+	    if !hasUnprivileged {
+	        c.Unprivileged = true
+	    }
+	}
 
 	// Validation
 	errs = packersdk.MultiErrorAppend(errs, c.Comm.Prepare(&c.Ctx)...)
@@ -203,7 +223,7 @@ func (c *Config) Prepare(raws ...interface{}) ([]string, []string, error) {
 	if c.ProxmoxConnect.ProxmoxURLRaw == "" {
 		errs = packersdk.MultiErrorAppend(errs, errors.New("proxmox_url must be specified"))
 	}
-	if c.ProxmoxConnect.ProxmoxURL, err = url.Parse(c.ProxmoxConnect.ProxmoxURLRaw); err != nil {
+	if _, err = url.Parse(c.ProxmoxConnect.ProxmoxURLRaw); err != nil {
 		errs = packersdk.MultiErrorAppend(errs, fmt.Errorf("could not parse proxmox_url: %s", err))
 	}
 	if c.ProxmoxConnect.Node == "" {
@@ -229,6 +249,13 @@ func (c *Config) Prepare(raws ...interface{}) ([]string, []string, error) {
 
 	if c.RootFS == nil {
 		errs = packersdk.MultiErrorAppend(errs, errors.New("rootfs block must be specified"))
+	}
+
+	// Call parent Prepare to initialize internal fields including proxmoxURL
+	_, parentWarnings, parentErr := c.ProxmoxConnect.Prepare(&c, raws...)
+	warnings = append(warnings, parentWarnings...)
+	if parentErr != nil {
+		errs = packersdk.MultiErrorAppend(errs, parentErr)
 	}
 
 	if errs != nil && len(errs.Errors) > 0 {

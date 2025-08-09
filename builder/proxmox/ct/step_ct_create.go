@@ -20,7 +20,7 @@ type stepCtCreate struct{}
 func (s *stepCtCreate) Run(ctx context.Context, state multistep.StateBag) multistep.StepAction {
 	ui := state.Get("ui").(packersdk.Ui)
 	client := state.Get("proxmoxClient").(*proxmox.Client)
-	c := state.Get("config").(*Config)
+	c := state.Get("ct-config").(*Config)
 
 	ui.Say("Creating Container")
 	config := proxmox.NewConfigLxc()
@@ -38,6 +38,19 @@ func (s *stepCtCreate) Run(ctx context.Context, state multistep.StateBag) multis
 	config.CPUUnits = c.CpuUnits
 	config.Description = c.Description
 	// config.Features = c.Features
+	if c.Features != "" {
+	    // For LXC, features should be a simple map with the features as keys
+	    featuresDevice := make(proxmox.QemuDevice)
+	    // Parse "nesting=1" to set nesting: "1"
+	    features := strings.Split(c.Features, ",")
+	    for _, feature := range features {
+	        parts := strings.Split(strings.TrimSpace(feature), "=")
+	        if len(parts) == 2 {
+	            featuresDevice[parts[0]] = parts[1]
+	        }
+	    }
+	    config.Features = featuresDevice
+	}
 	config.Force = c.Force
 	config.Hookscript = c.Hookscript
 	config.Hostname = c.Hostname
@@ -51,12 +64,18 @@ func (s *stepCtCreate) Run(ctx context.Context, state multistep.StateBag) multis
 	config.OsType = c.OSType
 	config.Ostemplate = c.OsTemplate
 	config.Password = c.UserPassword
-	config.Pool = c.Pool
+	if c.Pool != "" {
+	    poolName := proxmox.PoolName(c.Pool)
+	    config.Pool = &poolName  // Pool needs a pointer to PoolName
+	}
 	config.Protection = c.Protection
 	config.Restore = c.Restore
 	// config.RootFs = generateMountPoints([]MountPointConfig{c.RootFS})[0]
 	if c.RootFS != nil {
-		config.RootFs = generateMountPoints([]MountPointConfig{*c.RootFS}, true)[0]
+	    rootfsDevice := make(proxmox.QemuDevice)
+	    rootfsDevice["storage"] = c.RootFS.StorageId
+	    rootfsDevice["size"] = fmt.Sprintf("%dG", c.RootFS.DiskSizeGB)
+	    config.RootFs = rootfsDevice
 	}
 	config.SearchDomain = c.SearchDomain
 	// config.Snapname = c.Snapname
@@ -89,10 +108,10 @@ func (s *stepCtCreate) Run(ctx context.Context, state multistep.StateBag) multis
 		vmRef = proxmox.NewVmRef(id)
 		vmRef.SetNode(c.ProxmoxConnect.Node)
 		if c.Pool != "" {
-			vmRef.SetPool(c.Pool)
-			config.Pool = c.Pool
+		    vmRef.SetPool(c.Pool)  // SetPool expects a string
+		    poolName :=	 proxmox.PoolName(c.Pool)
+		    config.Pool = &poolName  // Pool needs a pointer to PoolName
 		}
-
 		err := config.CreateLxc(vmRef, client)
 		if err == nil {
 			break

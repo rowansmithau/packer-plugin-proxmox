@@ -18,7 +18,7 @@ func (s *stepGetCtIpAddr) Run(ctx context.Context, state multistep.StateBag) mul
 	ui := state.Get("ui").(packersdk.Ui)
 	comm, ok := state.Get("communicator").(packersdk.Communicator)
 	if !ok {
-		state.Put("error", "bad")
+		state.Put("error", fmt.Errorf("could not retrieve communicator from state"))
 		ui.Error("could not retrieve communicator from state")
 		return multistep.ActionHalt
 	}
