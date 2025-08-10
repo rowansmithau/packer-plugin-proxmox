@@ -54,10 +54,10 @@ func (b *Builder) Run(ctx context.Context, ui packersdk.Ui, hook packersdk.Hook)
 	// Only add communicator steps if not using "none"
 	if b.config.Comm.Type != "none" {
 		steps = append(steps,
-			new(stepGetCtIpAddr),
+			// Go straight to SSH connection - it will use ssh_host from config
 			&communicator.StepConnect{
 				Config:    &b.config.Comm,
-				Host:      commHost(""),
+				Host:      commHost(b.config.Comm.Host()),  // Pass the configured host
 				SSHConfig: b.config.Comm.SSHConfigFunc(),
 			},
 			new(stepProvision),
