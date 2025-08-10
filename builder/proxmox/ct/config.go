@@ -27,8 +27,8 @@ import (
 
 type Config struct {
 	common.PackerConfig `mapstructure:",squash"`
-	Comm                communicator.Config      `mapstructure:",squash"`
-	ProxmoxConnect      proxmoxcommon.Config     `mapstructure:",squash"`
+	Comm                communicator.Config  `mapstructure:",squash"`
+	ProxmoxConnect      proxmoxcommon.Config `mapstructure:",squash"`
 
 	// Required
 	OsTemplate string `mapstructure:"os_template"`
@@ -69,6 +69,7 @@ type Config struct {
 	Swap               int                       `mapstructure:"swap"`
 	Tags               []string                  `mapstructure:"tags"`
 	Template           bool                      `mapstructure:"template"`
+	TemplateName       string                    `mapstructure:"template_name"`
 	Timezone           string                    `mapstructure:"timezone"`
 	TTY                int                       `mapstructure:"tty"`
 	Unique             bool                      `mapstructure:"unique"`
@@ -189,25 +190,25 @@ func (c *Config) Prepare(raws ...interface{}) ([]string, []string, error) {
 		// Default to packer-[time-ordered-uuid]
 		c.Hostname = fmt.Sprintf("packer-%s", uuid.TimeOrderedUUID())
 	}
-	
+
 	// Enable console by default for containers
 	if !c.Console {
 		c.Console = true
 	}
-	
+
 	if !c.Unprivileged {
-	// Check if it was in the metadata (meaning it was explicitly set)
-	    hasUnprivileged := false
-	    for _, key := range md.Keys {
-	        if key == "unprivileged" {
-	            hasUnprivileged = true
-	            break
-	        }
-	    }
-	    // Only set to true if it wasn't explicitly configured
-	    if !hasUnprivileged {
-	        c.Unprivileged = true
-	    }
+		// Check if it was in the metadata (meaning it was explicitly set)
+		hasUnprivileged := false
+		for _, key := range md.Keys {
+			if key == "unprivileged" {
+				hasUnprivileged = true
+				break
+			}
+		}
+		// Only set to true if it wasn't explicitly configured
+		if !hasUnprivileged {
+			c.Unprivileged = true
+		}
 	}
 
 	// Validation

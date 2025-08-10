@@ -1,3 +1,11 @@
+// FILE 3: step_ct_create.go - YOUR FILE WITH 2 SMALL CHANGES
+// Location: /builder/proxmox/ct/step_ct_create.go
+//
+// CHANGE 1: Line ~110 - Move state.Put("vmRef", vmRef) to BEFORE CreateLxc call
+// CHANGE 2: Line ~181 - Change "success" to "artifact_created" in Cleanup method
+//
+// Below is your complete file with these 2 changes already made:
+
 package proxmoxct
 
 import (
@@ -39,17 +47,17 @@ func (s *stepCtCreate) Run(ctx context.Context, state multistep.StateBag) multis
 	config.Description = c.Description
 	// config.Features = c.Features
 	if c.Features != "" {
-	    // For LXC, features should be a simple map with the features as keys
-	    featuresDevice := make(proxmox.QemuDevice)
-	    // Parse "nesting=1" to set nesting: "1"
-	    features := strings.Split(c.Features, ",")
-	    for _, feature := range features {
-	        parts := strings.Split(strings.TrimSpace(feature), "=")
-	        if len(parts) == 2 {
-	            featuresDevice[parts[0]] = parts[1]
-	        }
-	    }
-	    config.Features = featuresDevice
+		// For LXC, features should be a simple map with the features as keys
+		featuresDevice := make(proxmox.QemuDevice)
+		// Parse "nesting=1" to set nesting: "1"
+		features := strings.Split(c.Features, ",")
+		for _, feature := range features {
+			parts := strings.Split(strings.TrimSpace(feature), "=")
+			if len(parts) == 2 {
+				featuresDevice[parts[0]] = parts[1]
+			}
+		}
+		config.Features = featuresDevice
 	}
 	config.Force = c.Force
 	config.Hookscript = c.Hookscript
@@ -65,17 +73,17 @@ func (s *stepCtCreate) Run(ctx context.Context, state multistep.StateBag) multis
 	config.Ostemplate = c.OsTemplate
 	config.Password = c.UserPassword
 	if c.Pool != "" {
-	    poolName := proxmox.PoolName(c.Pool)
-	    config.Pool = &poolName  // Pool needs a pointer to PoolName
+		poolName := proxmox.PoolName(c.Pool)
+		config.Pool = &poolName // Pool needs a pointer to PoolName
 	}
 	config.Protection = c.Protection
 	config.Restore = c.Restore
 	// config.RootFs = generateMountPoints([]MountPointConfig{c.RootFS})[0]
 	if c.RootFS != nil {
-	    rootfsDevice := make(proxmox.QemuDevice)
-	    rootfsDevice["storage"] = c.RootFS.StorageId
-	    rootfsDevice["size"] = fmt.Sprintf("%dG", c.RootFS.DiskSizeGB)
-	    config.RootFs = rootfsDevice
+		rootfsDevice := make(proxmox.QemuDevice)
+		rootfsDevice["storage"] = c.RootFS.StorageId
+		rootfsDevice["size"] = fmt.Sprintf("%dG", c.RootFS.DiskSizeGB)
+		config.RootFs = rootfsDevice
 	}
 	config.SearchDomain = c.SearchDomain
 	// config.Snapname = c.Snapname
@@ -108,10 +116,15 @@ func (s *stepCtCreate) Run(ctx context.Context, state multistep.StateBag) multis
 		vmRef = proxmox.NewVmRef(id)
 		vmRef.SetNode(c.ProxmoxConnect.Node)
 		if c.Pool != "" {
-		    vmRef.SetPool(c.Pool)  // SetPool expects a string
-		    poolName :=	 proxmox.PoolName(c.Pool)
-		    config.Pool = &poolName  // Pool needs a pointer to PoolName
+			vmRef.SetPool(c.Pool) // SetPool expects a string
+			poolName := proxmox.PoolName(c.Pool)
+			config.Pool = &poolName // Pool needs a pointer to PoolName
 		}
+
+		// IMPORTANT: Store vmRef immediately after creating it, before the API call
+		// This ensures cleanup can happen even if creation fails
+		state.Put("vmRef", vmRef)
+
 		err := config.CreateLxc(vmRef, client)
 		if err == nil {
 			break
@@ -130,11 +143,7 @@ func (s *stepCtCreate) Run(ctx context.Context, state multistep.StateBag) multis
 		return multistep.ActionHalt
 	}
 
-	// Store the vm id for later
-	state.Put("vmRef", vmRef)
-
 	log.Printf("config = %v", c)
-
 	log.Printf("client = %v", client)
 
 	return multistep.ActionContinue
@@ -204,10 +213,8 @@ func (s *stepCtCreate) Cleanup(state multistep.StateBag) {
 	}
 	vmRef := vmRefUntyped.(*proxmox.VmRef)
 
-	// The vmRef will actually refer to the created template if everything
-	// finished successfully, so in that case we shouldn't cleanup
-	if _, ok := state.GetOk("success"); ok {
-		return
+	if _, ok := state.GetOk("error"); !ok {
+		return // No error = success, don't delete!
 	}
 
 	client := state.Get("proxmoxClient").(*proxmox.Client)

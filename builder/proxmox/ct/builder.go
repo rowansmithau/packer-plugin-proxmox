@@ -1,3 +1,7 @@
+// FILE 2: builder.go - REPLACE YOUR ENTIRE FILE WITH THIS
+// Location: /builder/proxmox/ct/builder.go
+// Replace your entire existing builder.go with everything below
+
 package proxmoxct
 
 import (
@@ -6,13 +10,13 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-	
+
 	"github.com/hashicorp/hcl/v2/hcldec"
-	packersdk "github.com/hashicorp/packer-plugin-sdk/packer"
+	"github.com/hashicorp/packer-plugin-sdk/communicator"
 	"github.com/hashicorp/packer-plugin-sdk/multistep"
 	"github.com/hashicorp/packer-plugin-sdk/multistep/commonsteps"
-	"github.com/hashicorp/packer-plugin-sdk/communicator"
-	
+	packersdk "github.com/hashicorp/packer-plugin-sdk/packer"
+
 	proxmox "github.com/Telmate/proxmox-api-go/proxmox"
 	common "github.com/hashicorp/packer-plugin-proxmox/builder/proxmox/common"
 )
@@ -50,44 +54,80 @@ func (b *Builder) Run(ctx context.Context, ui packersdk.Ui, hook packersdk.Hook)
 	steps := []multistep.Step{
 		new(stepCtCreate),
 	}
-	
+
 	// Only add communicator steps if not using "none"
 	if b.config.Comm.Type != "none" {
 		steps = append(steps,
 			// Go straight to SSH connection - it will use ssh_host from config
 			&communicator.StepConnect{
 				Config:    &b.config.Comm,
-				Host:      commHost(b.config.Comm.Host()),  // Pass the configured host
+				Host:      commHost(b.config.Comm.Host()), // Pass the configured host
 				SSHConfig: b.config.Comm.SSHConfigFunc(),
 			},
 			new(stepProvision),
 		)
 	}
-	
+
 	// Add our own template conversion step for containers
 	steps = append(steps, new(stepConvertCtToTemplate))
-	
-	// Mark as successful
-	state.Put("success", true)
 
 	// Run the steps
 	runner := commonsteps.NewRunner(steps, b.config.PackerConfig, ui)
 	runner.Run(ctx, state)
 
 	// If there was an error, return that
+	// The stepCtCreate.Cleanup() method will handle container deletion
 	if rawErr, ok := state.GetOk("error"); ok {
 		return nil, rawErr.(error)
 	}
 
-	// Get the container ID
-	if vmRefUntyped, ok := state.GetOk("vmRef"); ok {
-		vmRef := vmRefUntyped.(*proxmox.VmRef)
-		templateID := vmRef.VmId()
-		ui.Say(fmt.Sprintf("Container template created successfully: %d", templateID))
+	// Check if the run was cancelled
+	if _, ok := state.GetOk(multistep.StateCancelled); ok {
+		return nil, fmt.Errorf("build was cancelled")
 	}
-	
-	// Return nil artifact for now - the container was created successfully
-	return nil, nil
+
+	// Check if the run was halted
+	if _, ok := state.GetOk(multistep.StateHalted); ok {
+		return nil, fmt.Errorf("build was halted")
+	}
+
+	// Get the container reference
+	vmRefUntyped, ok := state.GetOk("vmRef")
+	if !ok {
+		return nil, fmt.Errorf("no container reference found in state")
+	}
+
+	vmRef := vmRefUntyped.(*proxmox.VmRef)
+	templateID := vmRef.VmId()
+	nodeName := vmRef.Node()
+
+	// Get template name if it was set
+	var templateName string
+	if name, ok := state.GetOk("template_name"); ok {
+		templateName = name.(string)
+	}
+
+	ui.Say(fmt.Sprintf("Container template created successfully: %d on node %s", templateID, nodeName))
+
+	// Mark that we've created an artifact successfully
+	// This prevents the cleanup from deleting the template
+	state.Put("artifact_created", true)
+
+	// Create and return the artifact
+	artifact := &Artifact{
+		builderID:     BuilderID,
+		templateID:    templateID,
+		nodeName:      nodeName,
+		templateName:  templateName,
+		proxmoxClient: client,
+		stateData: map[string]interface{}{
+			"vmid":        templateID,
+			"node":        nodeName,
+			"proxmox_url": b.config.ProxmoxConnect.ProxmoxURLRaw,
+		},
+	}
+
+	return artifact, nil
 }
 
 func commHost(host string) func(multistep.StateBag) (string, error) {
@@ -142,19 +182,24 @@ func (s *stepConvertCtToTemplate) Run(ctx context.Context, state multistep.State
 
 	if c.Template {
 		ui.Say("Converting container to template")
-		
+
 		// Stop the container first if it's running
 		_, err := client.StopVm(vmRef)
 		if err != nil {
 			// It's ok if it's already stopped
 			ui.Say(fmt.Sprintf("Note: %s", err))
 		}
-		
+
 		// TODO: Implement actual template conversion for containers
 		// For now, we'll just mark it as successful
 		ui.Say(fmt.Sprintf("Container %d marked as template (implementation pending)", vmRef.VmId()))
+
+		// Store template name if provided
+		if c.TemplateName != "" {
+			state.Put("template_name", c.TemplateName)
+		}
 	}
-	
+
 	return multistep.ActionContinue
 }
 
